@@ -1,0 +1,43 @@
+set_delayed_charge:
+  name: Set delayed / timed charge
+  description: >
+    Schedule a delayed start and/or charge duration (chargePointTimer/onOffTimer).
+  fields:
+    mac:
+      name: Charger MAC
+      description: MAC of the charger (as shown on the device in HA).
+      required: true
+      example: "A0:F2:62:3D:E7:8C"
+      selector:
+        text:
+    time:
+      name: Start time
+      description: Scheduled clock start time, e.g. "22:30". Leave blank to use countdown.
+      required: false
+      example: "22:30"
+      selector:
+        text:
+    on_off:
+      name: On/Off
+      description: "1 = start charging, 0 = stop."
+      required: false
+      default: "1"
+      selector:
+        select:
+          options:
+            - "1"
+            - "0"
+    charge_duration:
+      name: Charge duration (minutes)
+      description: How long to charge once started. 0 = no limit.
+      required: false
+      default: "0"
+      selector:
+        text:
+    countdown:
+      name: Countdown (minutes)
+      description: Minutes from now until charging starts. 0 = immediate / use time.
+      required: false
+      default: "0"
+      selector:
+        text:

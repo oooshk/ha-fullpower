@@ -1,0 +1,13 @@
+{
+  "domain": "fullpower",
+  "name": "Full Power EV Charger",
+  "codeowners": ["@oooshk"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/oooshk/ha-fullpower",
+  "integration_type": "device",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/oooshk/ha-fullpower/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

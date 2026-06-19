@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Full Power EV Charger",
+        "description": "Enter your Full Power / Kiso app credentials",
+        "data": {
+          "username": "Email / Username",
+          "password": "Password"
+        }
+      },
+      "pick_device": {
+        "title": "Select Charger",
+        "data": {
+          "mac": "Charger"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password",
+      "cannot_connect": "Cannot connect to Kiso cloud",
+      "no_devices": "No chargers found on this account",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This charger is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling intervals",
+        "description": "Poll fast only while a charge started by Home Assistant is active; otherwise check in slowly.",
+        "data": {
+          "active_seconds": "Fast poll while HA-charging (seconds)",
+          "idle_minutes": "Idle check-in (minutes)",
+          "max_active_minutes": "Safety cap on fast polling (minutes)",
+          "rated_current": "Charger rated current (A)"
+        }
+      }
+    }
+  }
+}
