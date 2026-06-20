@@ -11,7 +11,7 @@ reliance on the app being open.
 > ⚠️ **Cloud integration.** It connects to Kiso's servers
 > (`appglobal.kisoiot.com`, `fullwatt.kisoiot.com`) and therefore needs
 > internet. Your app credentials are sent to those servers exactly as the
-> official app does. See [Local control](#local-control) for the offline goal.
+> official app does.
 
 ## Features
 
@@ -49,13 +49,6 @@ directory and restart.
   in** — set the amp limit while the connector is `Available` (unplugged).
 - Some settings are **rejected while charging**; the integration raises a
   notification explaining when that happens.
-
-## Local control
-
-These chargers are cloud appliances (no local API). Work toward fully local,
-no-internet control is documented in
-[`custom_components/fullpower/LOCAL_CONTROL.md`](custom_components/fullpower/LOCAL_CONTROL.md),
-including the decoded MQTT format and device command set.
 
 ## Disclaimer
 
