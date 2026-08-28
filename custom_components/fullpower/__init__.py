@@ -11,7 +11,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import FullPowerApi, FullPowerAuthError, FullPowerApiError
+from .api import (
+    FullPowerApi, FullPowerAuthError, FullPowerApiError, encode_password,
+)
 from .const import (
     DOMAIN, CONF_USERNAME, CONF_PASSWORD,
     CONF_MAC, CONF_DEVICE_TYPE, CONF_DEVICE_NAME,
@@ -19,9 +21,10 @@ from .const import (
     CONF_ACTIVE_SECONDS, CONF_IDLE_MINUTES, CONF_MAX_ACTIVE_MINUTES,
     DEFAULT_ACTIVE_SECONDS, DEFAULT_IDLE_MINUTES, DEFAULT_MAX_ACTIVE_MINUTES,
     CONF_RATED_CURRENT, DEFAULT_RATED_CURRENT,
+    CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES,
+    CONF_CAPTURE, DEFAULT_CAPTURE,
 )
 from .coordinator import FullPowerCoordinator, seconds_until
-from .mqtt_client import FullPowerMqtt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +48,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
     api = FullPowerApi(session)
     try:
-        await api.login(entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD])
+        pw_hash = await hass.async_add_executor_job(
+            encode_password, entry.data[CONF_PASSWORD])
+        await api.login(entry.data[CONF_USERNAME], pw_hash)
     except FullPowerAuthError as err:
         raise ConfigEntryAuthFailed(f"Login failed: {err}") from err
     except FullPowerApiError as err:
@@ -63,19 +68,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         rated_current=entry.options.get(
             CONF_RATED_CURRENT,
             entry.data.get(CONF_RATED_CURRENT, DEFAULT_RATED_CURRENT)),
+        stale_minutes=entry.options.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES),
+        capture_enabled=entry.options.get(CONF_CAPTURE, DEFAULT_CAPTURE),
     )
     await coordinator.async_config_entry_first_refresh()
 
     # Reload the entry when options (polling intervals) change.
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
-    # Live push + capture log (best-effort; REST polling still works without it).
-    mqtt_client = FullPowerMqtt(hass, coordinator, api.access_token)
-    mqtt_client.start()
-
-    hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator, "api": api, "mqtt": mqtt_client,
-    }
+    hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator, "api": api}
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _register_services(hass)
@@ -128,10 +129,6 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    data = hass.data[DOMAIN].get(entry.entry_id, {})
-    if mqtt_client := data.get("mqtt"):
-        mqtt_client.stop()
-
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)

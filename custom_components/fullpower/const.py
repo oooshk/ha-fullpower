@@ -7,9 +7,6 @@ MANUFACTURER = "Kiso / Fullwatt"
 API_URL      = "https://appglobal.kisoiot.com:8443"
 FULLWATT_URL = "https://fullwatt.kisoiot.com"
 
-MQTT_HOST = "appglobal.kisoiot.com"
-MQTT_PORT = 3010  # plain TCP
-
 APP_CODE = "92c9c09a-b7b5-4c6c-bbb9-028b761763d9"
 LOGIN_VERSION = "v2"
 RET_CODE_SUCCESS = "20000"
@@ -98,6 +95,46 @@ CONF_MAX_ACTIVE_MINUTES = "max_active_minutes"  # safety cap on fast polling
 DEFAULT_ACTIVE_SECONDS     = 30
 DEFAULT_IDLE_MINUTES       = 15
 DEFAULT_MAX_ACTIVE_MINUTES = 240
+
+# ── Staleness / offline detection ─────────────────────────────────────────────
+# The cloud keeps serving the LAST KNOWN device record after the charge point
+# drops its link: get_device_list() still succeeds, so nothing here failed and
+# every entity stayed 'available' while reporting a status that was, on
+# 2026-08-16..19, up to 60.7 hours old. The payload carries no isOnline flag and
+# ChargePointErrorCode stays 'NoError' throughout, so the only evidence of life
+# is that the payload's own `timestamp` field keeps moving.
+#
+# Measured cadence (2609 captured REST payloads, both firmwares): `timestamp`
+# advances roughly every 20 minutes even while parked at 'Available', and jumps
+# instantly on a real event. So it is a heartbeat, not an event marker — but the
+# idle heartbeat can legitimately sit ~20-25 min behind the wall clock, which is
+# why the threshold is well above that rather than a few minutes.
+CONF_STALE_MINUTES    = "stale_minutes"
+DEFAULT_STALE_MINUTES = 90
+
+# Cold-start guard. Change-detection needs two polls to say anything, so a HA
+# restart during an outage would otherwise show a stale status as live for a
+# full stale_minutes. On the first poll only, judge the timestamp in absolute
+# terms — generously, because of the timezone caveat below.
+COLD_START_MAX_AGE_H = 6
+
+# The payload timestamp is suffixed 'Z' but is NOT UTC: captured polls show it
+# tracking LOCAL time (a poll at 08:36:29 BST carried '...T08:21:27.459Z', i.e.
+# 15 min behind local, 45 min AHEAD of the true UTC instant). Never trust that
+# suffix. The primary guard therefore never does absolute arithmetic on it — it
+# only asks "has this value changed?", measured on our own clock, which is
+# immune to the device's timezone, to DST, and to clock skew. The cold-start
+# check does compare absolutely, so it takes the most favourable of the two
+# possible interpretations and uses a wide threshold.
+
+# -- Capture log --------------------------------------------------------------
+# Raw-payload capture is developer instrumentation for local-control work, not a
+# user feature: it appends a JSONL record on every poll and is unbounded by
+# nature. It is therefore OFF by default and size-capped, so a forgotten toggle
+# cannot fill the config partition (a real 573 MB file prompted this).
+CONF_CAPTURE      = "capture_enabled"
+DEFAULT_CAPTURE   = False
+CAPTURE_MAX_BYTES = 32 * 1024 * 1024
 
 # Statuses that count as an active/ongoing session for monitoring purposes.
 ACTIVE_MONITOR_STATES = {"Preparing", "Charging", "SuspendedEV", "SuspendedEVSE"}

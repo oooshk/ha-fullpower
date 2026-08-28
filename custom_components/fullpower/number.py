@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class _BaseNumber(CoordinatorEntity, NumberEntity):
+    _attr_has_entity_name = True
     _attr_mode = NumberMode.BOX
 
     def __init__(self, coordinator: FullPowerCoordinator, key: str, name: str) -> None:
@@ -58,7 +59,6 @@ class FullPowerDLBMaxNumber(_BaseNumber):
         return float(m.group()) if m else None
 
     async def async_set_native_value(self, value: float) -> None:
-        self.coordinator.note_setting_write("House Current Limit")
         await self.coordinator.api.update_charge_point_data(
             self.coordinator.mac, self.coordinator.device_type,
             ATTR_DLB_MAX_C, str(int(value)))

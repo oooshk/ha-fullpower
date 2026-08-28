@@ -8,7 +8,12 @@ snapshots, and raw MQTT topic/payloads) to a JSONL file under the HA config dir:
 
 This builds the dataset needed to later replace the cloud with a local broker:
 the exact MQTT topics the device uses, the command->payload mapping, and the
-full OCPP telemetry schema. See LOCAL_CONTROL.md for how to use it.
+full OCPP telemetry schema.
+
+Disabled by default: enable "Capture raw cloud payloads" in the integration's
+options. Growth is bounded by CAPTURE_MAX_BYTES; once reached the file stops
+growing rather than being rotated, so an enabled-and-forgotten capture cannot
+fill the config partition.
 """
 from __future__ import annotations
 
@@ -16,6 +21,8 @@ import json
 import logging
 import os
 import time
+
+from .const import CAPTURE_MAX_BYTES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +44,11 @@ def append(config_dir: str, mac: str, source: str, data, topic: str | None = Non
     }
     try:
         fn = os.path.join(capture_dir(config_dir), f"{safe_mac}.jsonl")
+        try:
+            if os.path.getsize(fn) >= CAPTURE_MAX_BYTES:
+                return
+        except OSError:
+            pass  # not created yet
         with open(fn, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as err:

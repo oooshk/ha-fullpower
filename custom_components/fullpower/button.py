@@ -20,6 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class FullPowerRebootButton(CoordinatorEntity, ButtonEntity):
+    _attr_has_entity_name = True
     _attr_name = "Reboot"
     _attr_device_class = ButtonDeviceClass.RESTART
     _attr_entity_category = None

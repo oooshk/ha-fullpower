@@ -18,6 +18,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class FullPowerScheduledStart(CoordinatorEntity, TimeEntity):
+    _attr_has_entity_name = True
     _attr_name = "Scheduled Start Time"
     _attr_icon = "mdi:clock-start"
 

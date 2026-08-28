@@ -30,6 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class _BaseSwitch(CoordinatorEntity, SwitchEntity):
+    _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
 
     def __init__(self, coordinator: FullPowerCoordinator, key: str, name: str) -> None:
@@ -137,7 +138,6 @@ class FullPowerDLBSwitch(_BaseSwitch):
         return None if raw is None else str(raw) not in ("0", "0.0", "False", "false")
 
     async def _set(self, value: str) -> None:
-        self.coordinator.note_setting_write("Dynamic Load Balancing")
         await self.coordinator.api.update_charge_point_data(
             self.coordinator.mac, self.coordinator.device_type, ATTR_DLB_ENABLE, value)
         await self.coordinator.async_request_refresh()

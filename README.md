@@ -4,9 +4,9 @@
 
 Home Assistant integration for **Full Power** / **Kiso** EV charging piles
 (app package `com.kiso.yusing`, devices branded **Fullwatt / FWT**). It talks to
-the Kiso cloud the same way the official app does (REST + MQTT), giving you
-proper start/stop control, live telemetry, and the charger's settings — no
-reliance on the app being open.
+the Kiso cloud over the same REST API the official app uses, giving you proper
+start/stop control, live telemetry, and the charger's settings — no reliance on
+the app being open.
 
 > ⚠️ **Cloud integration.** It connects to Kiso's servers
 > (`appglobal.kisoiot.com`, `fullwatt.kisoiot.com`) and therefore needs
@@ -23,9 +23,14 @@ reliance on the app being open.
 - **Reboot** the charger (`button`).
 - **Live sensors** — status (OCPP), power, per-phase voltage & current, session
   energy, temperature, state of charge*, charge-point error.
-- **Real-time updates** via the cloud MQTT push, with adaptive REST polling that
-  speeds up while charging.
-- **Diagnostics** download and a local capture log for development.
+- **Adaptive polling** — a slow background check-in that speeds up to a short
+  interval while a charge session is running.
+- **Offline detection** — the cloud keeps serving the last known record after the
+  charge point drops its link, so the integration watches the payload's own
+  heartbeat and marks entities unavailable instead of reporting stale data as
+  live.
+- **Diagnostics** download, plus an optional raw-payload capture log (off by
+  default, see below).
 
 \* State of charge is only reported by some hardware; AC chargers usually can't
 read the car's battery level.
@@ -47,8 +52,28 @@ directory and restart.
 
 - The charger firmware **rejects charge-current changes while a car is plugged
   in** — set the amp limit while the connector is `Available` (unplugged).
-- Some settings are **rejected while charging**; the integration raises a
-  notification explaining when that happens.
+- Some settings are **rejected while charging**. The charger accepts the request
+  and silently declines it, so check the entity afterwards to confirm the change
+  took effect.
+
+## Transport security
+
+All cloud calls go over HTTPS with certificate verification enabled.
+
+This integration deliberately does **not** connect to the vendor's MQTT broker.
+That broker is reachable only as plaintext TCP on port 3010 — it offers no TLS
+listener, no MQTT-over-WebSocket endpoint, and the app performs no certificate
+pinning — so using it would mean putting the account's access token on the wire
+in the clear. Live push was dropped in favour of polling rather than do that.
+
+## Capture log
+
+`Settings → Devices & Services → Full Power → Configure` has a **Capture raw
+cloud payloads** toggle, off by default. When enabled the integration appends
+every REST payload to `<config>/fullpower_capture/<mac>.jsonl` for
+protocol/local-control work. It is developer instrumentation: it grows on every
+poll, lives inside the config directory (so it lands in backups), and is capped
+at 32 MB. Leave it off unless you are actively collecting.
 
 ## Disclaimer
 

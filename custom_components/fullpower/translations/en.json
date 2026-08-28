@@ -14,6 +14,13 @@
         "data": {
           "mac": "Charger"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Full Power",
+        "description": "Your saved password for {username} was rejected. Enter it again.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -23,7 +30,8 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This charger is already configured"
+      "already_configured": "This charger is already configured",
+      "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {
@@ -35,7 +43,37 @@
           "active_seconds": "Fast poll while HA-charging (seconds)",
           "idle_minutes": "Idle check-in (minutes)",
           "max_active_minutes": "Safety cap on fast polling (minutes)",
-          "rated_current": "Charger rated current (A)"
+          "rated_current": "Charger rated current (A)",
+          "stale_minutes": "Treat charger as offline after (minutes with no device report)",
+          "capture_enabled": "Capture raw cloud payloads to disk (developer diagnostics; off by default)"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_delayed_charge": {
+      "name": "Set delayed / timed charge",
+      "description": "Schedule a delayed start and/or charge duration.",
+      "fields": {
+        "mac": {
+          "name": "Charger MAC",
+          "description": "MAC of the charger as shown on the device in Home Assistant."
+        },
+        "time": {
+          "name": "Start time",
+          "description": "Scheduled clock start time, e.g. 22:30. Leave blank to use countdown."
+        },
+        "on_off": {
+          "name": "On/Off",
+          "description": "1 = start charging, 0 = stop."
+        },
+        "charge_duration": {
+          "name": "Charge duration",
+          "description": "How long to charge once started, in seconds. 0 = no limit."
+        },
+        "countdown": {
+          "name": "Countdown",
+          "description": "Seconds from now until charging starts. 0 = immediate, or use start time."
         }
       }
     }

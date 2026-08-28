@@ -133,6 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class FullPowerSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
 
     def __init__(self, coordinator, key, name, value_fn, dev_class, state_class, unit, options):
         super().__init__(coordinator)

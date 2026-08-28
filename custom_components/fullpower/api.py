@@ -55,7 +55,8 @@ def _md5_16(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()[8:24]
 
 
-def _encode_password(password: str) -> str:
+def encode_password(password: str) -> str:
+    """CPU-bound (~350 ms at cost 12). Call via hass.async_add_executor_job."""
     a = _md5_32(password)
     b = _md5_16(a)
     c = base64.b64encode(b.encode()).decode()
@@ -81,10 +82,11 @@ class FullPowerApi:
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
-    async def login(self, username: str, password: str) -> dict:
+    async def login(self, username: str, password_hash: str) -> dict:
+        """`password_hash` comes from encode_password(), hashed off-loop."""
         body = {
             "loginName": username,
-            "password":  _encode_password(password),
+            "password":  password_hash,
             "appCode":   APP_CODE,
             "msgId":     _msg_id(),
             "version":   LOGIN_VERSION,
@@ -179,7 +181,7 @@ class FullPowerApi:
         url = _base_url_for(path) + path
         try:
             async with self._session.post(
-                url, data=form, headers=DEFAULT_HEADERS, ssl=False
+                url, data=form, headers=DEFAULT_HEADERS
             ) as resp:
                 resp.raise_for_status()
                 payload = await resp.json(content_type=None)

@@ -26,6 +26,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
 
 
 class _BaseSelect(CoordinatorEntity, SelectEntity):
+    _attr_has_entity_name = True
     def __init__(self, coordinator: FullPowerCoordinator, key: str, name: str) -> None:
         super().__init__(coordinator)
         self._attr_name = name
@@ -64,7 +65,6 @@ class FullPowerChargeModeSelect(_BaseSelect):
         if combo is None:
             return
         mode, compatible = combo
-        self.coordinator.note_setting_write("Charge Mode")
         await self.coordinator.api.update_charge_point_data(
             self.coordinator.mac, self.coordinator.device_type, ATTR_CHARGE_MODE, mode)
         await self.coordinator.api.update_charge_point_data(
@@ -96,7 +96,6 @@ class FullPowerChargeCurrentSelect(_BaseSelect):
         m = _NUM_RE.search(option)
         if not m:
             return
-        self.coordinator.note_setting_write("Charging Current")
         await self.coordinator.api.update_charge_point_data(
             self.coordinator.mac, self.coordinator.device_type, ATTR_MAX_CURRENT, m.group())
         await self.coordinator.async_request_refresh()

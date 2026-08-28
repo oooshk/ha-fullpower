@@ -6,12 +6,14 @@ import logging
 import time
 from datetime import datetime, timedelta
 
-from homeassistant.components import persistent_notification
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import FullPowerApi, FullPowerApiError, FullPowerAuthError
-from .const import DOMAIN, ACTIVE_MONITOR_STATES
+from .const import (
+    DOMAIN, ACTIVE_MONITOR_STATES, COLD_START_MAX_AGE_H, DEFAULT_STALE_MINUTES,
+    DEFAULT_CAPTURE,
+)
 from . import capture
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +42,8 @@ class FullPowerCoordinator(DataUpdateCoordinator):
     def __init__(
         self, hass, api: FullPowerApi, mac, device_type, device_name,
         active_seconds: int, idle_minutes: int, max_active_minutes: int,
-        rated_current: int,
+        rated_current: int, stale_minutes: int = DEFAULT_STALE_MINUTES,
+        capture_enabled: bool = DEFAULT_CAPTURE,
     ) -> None:
         super().__init__(
             hass, _LOGGER, name=f"{DOMAIN}_{mac}",
@@ -59,9 +62,6 @@ class FullPowerCoordinator(DataUpdateCoordinator):
         self.sched_duration_h = 0      # duration in hours (0 = no time limit)
         self._sched_init = False
 
-        # Tracks the last setting write, to explain a device "Rejected" CmdResult.
-        self._pending_write: tuple[str, float] | None = None
-
         self._active_s = active_seconds
         self._idle_m = idle_minutes
         self._max_active_s = max_active_minutes * 60
@@ -70,6 +70,13 @@ class FullPowerCoordinator(DataUpdateCoordinator):
         self._ha_active = False          # did THIS integration start the current session?
         self._active_started = 0.0
         self._seen_active = False        # have we observed an active status since start?
+
+        # staleness / offline detection (see the const.py note)
+        self._capture_enabled = bool(capture_enabled)
+        self._stale_s = max(1, int(stale_minutes)) * 60
+        self._last_payload_ts: str | None = None   # last `timestamp` value seen
+        self._last_fresh = time.monotonic()        # when it last CHANGED, our clock
+        self._offline = False
 
     # ── interval helpers ──────────────────────────────────────────────────────
 
@@ -98,28 +105,6 @@ class FullPowerCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Fast monitoring enabled (%ss) for %s", self._active_s, self.mac)
 
     @callback
-    def note_setting_write(self, description: str) -> None:
-        """Record a setting change so a following 'Rejected' can be explained."""
-        self._pending_write = (description, time.monotonic())
-
-    @callback
-    def note_command_rejected(self) -> None:
-        """Device rejected a command (CmdResult=Rejected) — tell the user why."""
-        pw = self._pending_write
-        if not pw or (time.monotonic() - pw[1]) > 20:
-            return
-        self._pending_write = None
-        persistent_notification.async_create(
-            self.hass,
-            f"The charger **rejected** the change to **{pw[0]}**.\n\n"
-            "On this firmware that setting usually can't be changed while a "
-            "vehicle is connected. Unplug the car, make the change, then plug "
-            "back in.",
-            title=f"{self.device_name}: change rejected",
-            notification_id=f"{DOMAIN}_{self.mac}_rejected",
-        )
-
-    @callback
     def note_charge_stopped(self) -> None:
         """Called when charging is stopped via this integration -> back to idle."""
         if self._ha_active:
@@ -127,6 +112,103 @@ class FullPowerCoordinator(DataUpdateCoordinator):
             self.update_interval = self._idle_interval()
             self._reschedule()
             _LOGGER.debug("Fast monitoring disabled for %s", self.mac)
+
+    # ── staleness / offline detection ────────────────────────────────────────
+
+    @callback
+    def note_liveness(self) -> None:
+        """Proof the charge point is actually talking to us. Restarts the clock."""
+        self._last_fresh = time.monotonic()
+        self._offline = False
+
+    @staticmethod
+    def _payload_age_s(raw: str) -> float | None:
+        """Best-case age of a payload timestamp, in seconds.
+
+        The 'Z' suffix is not to be trusted (see const.py), so read it both as
+        local time and as UTC and take whichever looks FRESHER. Only used by the
+        cold-start check, which is deliberately generous; the steady-state guard
+        never does absolute arithmetic on this value.
+        """
+        try:
+            txt = str(raw).strip().rstrip("Zz")
+            parsed = datetime.fromisoformat(txt)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.replace(tzinfo=None)
+        as_local = (datetime.now() - parsed).total_seconds()
+        as_utc = (datetime.utcnow() - parsed).total_seconds()
+        return min(abs(as_local), abs(as_utc))
+
+    def _go_offline(self, state: dict, why: str) -> None:
+        """Latch offline and reject this poll, so entities go unavailable."""
+        self._offline = True
+        raise UpdateFailed(
+            f"Charge point offline: {why} (cloud still serving "
+            f"{state.get('ChargePointStatus')!r})")
+
+    def _check_freshness(self, state: dict) -> None:
+        """Raise UpdateFailed when the cloud is replaying a cached record.
+
+        Primary test is change-detection measured on our own clock: if the
+        device's `timestamp` has not moved for stale_minutes, the charge point
+        is not reporting, whatever ChargePointStatus happens to say. That is
+        immune to the device's timezone, to DST, and to clock skew.
+        """
+        stamp = state.get("timestamp")
+        if stamp in (None, ""):
+            # Every captured payload carried this field, on both firmwares, but
+            # fail OPEN rather than bricking the integration on a variant that
+            # does not: a missing field is not evidence of an outage.
+            self._offline = False
+            self.note_liveness()
+            return
+
+        first_poll = self._last_payload_ts is None
+        moved = stamp != self._last_payload_ts
+        self._last_payload_ts = stamp
+
+        if first_poll:
+            # No change-history yet — on the first poll the value always "moves"
+            # (from None), so change-detection cannot say anything here. Judge it
+            # absolutely instead, generously, because of the timezone caveat.
+            # Without this, a HA restart during an outage would present a cached
+            # status as live for a full stale window.
+            age = self._payload_age_s(stamp)
+            if age is not None and age > COLD_START_MAX_AGE_H * 3600:
+                _LOGGER.warning(
+                    "FullPower %s: first poll returned a record %.1f h old — "
+                    "charge point is not reporting. Marking unavailable.",
+                    self.mac, age / 3600)
+                self._go_offline(
+                    state, f"cloud is replaying a record {age / 3600:.1f} h old")
+            self._offline = False
+            self.note_liveness()
+            return
+
+        if moved:
+            if self._offline:
+                _LOGGER.warning(
+                    "FullPower %s is reporting again after %.1f h silent",
+                    self.mac, (time.monotonic() - self._last_fresh) / 3600)
+                self._offline = False
+            self.note_liveness()
+            return
+
+        # Unchanged since last poll. Once latched offline, stay offline until the
+        # device actually reports something new — never time back into "healthy".
+        if self._offline:
+            self._go_offline(state, "still not reporting")
+
+        silent_s = time.monotonic() - self._last_fresh
+        if silent_s > self._stale_s:
+            _LOGGER.warning(
+                "FullPower %s has not reported for %.1f min; the cloud is "
+                "replaying a cached record (status %s). Marking unavailable.",
+                self.mac, silent_s / 60, state.get("ChargePointStatus"))
+            self._go_offline(
+                state, f"no device report for {silent_s / 60:.0f} min")
 
     def _update_polling(self, status: str | None) -> None:
         """Choose interval: fast while charging (any initiator) or HA-initiated."""
@@ -169,6 +251,11 @@ class FullPowerCoordinator(DataUpdateCoordinator):
             except (ValueError, TypeError):
                 _LOGGER.debug("deviceData not JSON: %r", raw[:120])
 
+        # Judge freshness before anything consumes this record. _capture() is
+        # skipped on a stale poll on purpose: the capture log is the evidence
+        # trail for outages, and 60 h of identical replayed records buries it.
+        self._check_freshness(state)
+
         self.device_state = state
         self._update_polling(state.get("ChargePointStatus"))
         self._init_schedule_from_device(state)
@@ -191,7 +278,12 @@ class FullPowerCoordinator(DataUpdateCoordinator):
 
     async def apply_schedule(self, enabled: bool) -> None:
         """Commit the deferred-charge schedule via onOffTimer."""
-        duration = str(self.sched_duration_h or 0)
+        # chargeDuration is SECONDS on the wire. _init_schedule_from_device()
+        # already reads it that way (// 3600), and every other duration the
+        # device reports is in seconds (ConnectionTimeOut 120,
+        # MinimumStatusDuration 1200). This previously sent hours, so a 2-hour
+        # limit went out as "2".
+        duration = str(int(self.sched_duration_h or 0) * 3600)
         if enabled:
             start = self.sched_start or "00:00"
             countdown = str(seconds_until(start))
@@ -204,6 +296,8 @@ class FullPowerCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
     async def _capture(self, device: dict, raw_device_data) -> None:
+        if not self._capture_enabled:
+            return
         cfg = self.hass.config.config_dir
         if not self._identity_saved:
             identity = {k: device.get(k) for k in _IDENTITY_KEYS if device.get(k) is not None}
@@ -213,11 +307,3 @@ class FullPowerCoordinator(DataUpdateCoordinator):
         if raw_device_data:
             await self.hass.async_add_executor_job(
                 capture.append, cfg, self.mac, "rest", raw_device_data, None)
-
-    def update_from_mqtt(self, data: dict) -> None:
-        self.device_state.update(data)
-        if "ChargePointStatus" in data:
-            # A status change (from any initiator) adjusts the REST cadence too.
-            self._update_polling(data["ChargePointStatus"])
-        # async_set_updated_data notifies entities and reschedules at the new interval.
-        self.async_set_updated_data(self.device_state)

@@ -28,15 +28,17 @@ set_delayed_charge:
             - "1"
             - "0"
     charge_duration:
-      name: Charge duration (minutes)
-      description: How long to charge once started. 0 = no limit.
+      name: Charge duration (seconds)
+      description: How long to charge once started, in seconds. 0 = no limit.
       required: false
       default: "0"
       selector:
         text:
     countdown:
-      name: Countdown (minutes)
-      description: Minutes from now until charging starts. 0 = immediate / use time.
+      name: Countdown (seconds)
+      description: >
+        Seconds from now until charging starts. 0 = immediate, or leave 0 and set
+        "time" to have it computed for you.
       required: false
       default: "0"
       selector:
